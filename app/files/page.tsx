@@ -181,7 +181,7 @@ export default function ListaArchivos() {
                     <TableCell className="hidden md:table-cell text-muted-foreground">
                       {formatDate(file.lastModified)}
                     </TableCell>
-                    <TableCell className="text-right">{formatFileSize(file.size)}</TableCell>
+                    <TableCell className="text-right">{formatFileSize(file.size ?? 0)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
