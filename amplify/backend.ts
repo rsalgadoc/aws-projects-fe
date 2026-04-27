@@ -1,0 +1,114 @@
+import { defineBackend } from '@aws-amplify/backend';
+import { Effect, Policy, PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { auth } from './auth/resource';
+import { data } from './data/resource';
+import { Bucket } from 'aws-cdk-lib/aws-s3';
+
+/**
+ * @see https://docs.amplify.aws/react/build-a-backend/ to add storage, functions, and more
+ */
+const backend = defineBackend({
+  auth,
+  data,
+});
+
+// Accedemos al recurso L1 del User Pool de Cognito
+const { cfnUserPool } = backend.auth.resources.cfnResources;
+
+// Configuramos para que solo los administradores puedan crear usuarios
+cfnUserPool.adminCreateUserConfig = {
+  allowAdminCreateUserOnly: true,
+};
+
+// Leemos la variable de entorno del sistema
+const BUCKET_ARN = process.env.MY_CUSTOM_BUCKET_ARN;
+const OUTPUT_BUCKET_ARN = process.env.MY_CUSTOM_OUTPUT_BUCKET_ARN;
+
+if (!BUCKET_ARN) {
+  throw new Error("La variable de entorno MY_CUSTOM_BUCKET_ARN no está definida");
+}
+
+if (!OUTPUT_BUCKET_ARN) {
+  throw new Error("La variable de entorno MY_CUSTOM_OUTPUT_BUCKET_ARN no está definida");
+}
+
+// === TU BUCKET EXISTENTE ===
+const customBucketStack = backend.createStack('custom-bucket-stack');
+
+const existingBucket = Bucket.fromBucketAttributes(customBucketStack, 'MyExistingBucket', {
+  bucketArn: BUCKET_ARN,
+  region: 'us-east-1',                             // ← tu región
+});
+
+const outputBucket = Bucket.fromBucketAttributes(customBucketStack, 'MyExistingBucket2', {
+  bucketArn: OUTPUT_BUCKET_ARN,
+  region: 'us-east-1',                             // ← tu región
+});
+
+// Registra el bucket en Amplify (para que el cliente sepa usarlo)
+backend.addOutput({
+  storage: {
+    aws_region: existingBucket.env.region,
+    bucket_name: existingBucket.bucketName,
+    buckets: [
+      {
+        aws_region: existingBucket.env.region,
+        bucket_name: existingBucket.bucketName,
+        name: existingBucket.bucketName,
+        paths: {
+          'public/*': {
+            guest: ['get', 'list'],                    // lectura pública
+            authenticated: ['get', 'list', 'write', 'delete'], // usuarios logueados
+          },
+          // Puedes agregar más rutas (protected/, private/, etc.)
+        },
+      },
+      {
+        name: 'output-bucket-externo', // Segundo alias
+        bucket_name: outputBucket.bucketName,
+        aws_region: outputBucket.env.region,
+        paths: {
+          'resultados/public/*': {
+            guest: ['get', 'list'],                    // lectura pública
+            authenticated: ['get', 'list'], // usuarios logueados
+          },
+          // Puedes agregar más rutas (protected/, private/, etc.)
+        },
+      },
+    ],
+  },
+});
+
+// === Permisos IAM (necesario) ===
+const authPolicy = new Policy(customBucketStack, 'CustomBucketAuthPolicy', {
+  statements: [
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+      resources: [`${existingBucket.bucketArn}/public/*`],
+    }),
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [existingBucket.bucketArn],
+      conditions: {
+        StringLike: { 's3:prefix': ['public/', 'public/*'] },
+      },
+    }),
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:GetObject'], // Agrega esta acción
+      resources: [`${outputBucket.bucketArn}/resultados/public/*`],
+    }),
+    new PolicyStatement({
+      effect: Effect.ALLOW,
+      actions: ['s3:ListBucket'],
+      resources: [outputBucket.bucketArn],
+      conditions: {
+        StringLike: { 's3:prefix': ['resultados/public/', 'resultados/public/*'] },
+      },
+    }),
+  ],
+});
+
+backend.auth.resources.authenticatedUserIamRole.attachInlinePolicy(authPolicy);
