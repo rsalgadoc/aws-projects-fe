@@ -6,6 +6,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button"
 import { FileIcon, FolderIcon, HardDrive, Download } from "lucide-react"
 
+interface FileItem {
+  path: string;
+  size?: number;
+  lastModified?: Date | string;
+  eTag?: string;
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -55,7 +62,7 @@ async function downloadFile(filePath: string) {
 }
 
 export default function ListaArchivos() {
-  const [files, setFiles] = useState<any[]>([]);
+  const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
